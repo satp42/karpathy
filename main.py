@@ -1,19 +1,41 @@
 from youtube_transcript_api import YouTubeTranscriptApi
 import cv2
 import numpy as np
-from datetime import datetime, timedelta
-from IPython.display import display, Image, Audio
+from datetime import datetime, timedelta, time
+
 import base64
 import time
 import openai  # Assuming 'openai' is the correct module for OpenAI API
+from pytube import YouTube
 
 # Set your OpenAI API key
-api_key = "openai-key"
+api_key = ""
 openai.api_key = api_key
 
-video_id = "zduSFxRajkE"
+video_id = "NorXFOobehY"
 
 transcript = YouTubeTranscriptApi.get_transcript(video_id)
+
+def download_video(video_id):
+    print("Downloading video...")
+    # check if video is already downloaded
+    try:
+        with open(f"videos/{video_id}.mp4", "r") as file:
+            print("Video already downloaded.")
+            return True, None
+    except FileNotFoundError:
+        print("Video not downloaded yet.")
+        pass
+    try: 
+        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').asc().first().download(filename="videos/{}.mp4".format(video_id))
+        if stream:
+            stream.download()
+            return True, None
+        else:
+            return False
+    except Exception as e:
+        return False, str(e)
 
 def format_time(seconds):
     delta = timedelta(seconds=seconds)
@@ -74,13 +96,16 @@ def timestamp_to_seconds(timestamp):
     total_seconds = hours * 3600 + minutes * 60 + seconds
     return total_seconds
 
-video_path = 'vid.mp4'
+download_video(video_id)
+
+video_path = 'videos/{}.mp4'.format(video_id)
 output_path = 'screenshots/'
 timestamp_in_seconds = [timestamp_to_seconds(time['start']) for time in loaded_object]
 
 take_screenshot(video_path, output_path, timestamp_in_seconds)
 
 def compare_images(img1, img2, method="mse"):
+    t0 = time.time()
     img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) if len(img1.shape) > 2 else img1
     img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) if len(img2.shape) > 2 else img2
     img1 = cv2.resize(img1, (img2.shape[1], img2.shape[0])) if img1.shape != img2.shape else img1
@@ -88,6 +113,7 @@ def compare_images(img1, img2, method="mse"):
 
     if method == "mse":
         diff = np.square(img1 - img2).mean()
+        print(f"Time taken: {time.time() - t0:.2f}s")
         return diff
     else:
         raise ValueError(f"Invalid comparison method: {method}")
@@ -148,6 +174,9 @@ def generate_prompt(current_text, previous_text, images):
         Your response should be as detailed as possible.
 
         You should output in markdown syntax
+         
+        The images are given to you in the following order. When attaching an image, make sure to use the correct filename in your markdown syntax:
+        - {', '.join(["../{}".format(image) for image in images])}
 
         PREVIOUS TEXT: {previous_text}
 
@@ -175,6 +204,7 @@ def generate_answer(prompt):
         "max_tokens": 2000,
     }
     result = openai.ChatCompletion.create(**params)
+    print("result, ", result)
     return result.choices[0].message['content']
 
 def generate_all_and_save():
@@ -186,7 +216,7 @@ def generate_all_and_save():
             prompt = generate_prompt(current_text, previous_text, images)
             answer = generate_answer(prompt)
 
-            file_path = f"outputs/{index}.txt"
+            file_path = f"outputs/{index}.md"
             with open(file_path, 'w') as file:
                 file.write(answer)
 
@@ -204,7 +234,7 @@ youtube_link = "https://youtu.be/zduSFxRajkE?si=6vm4GUe1GMvz4U1W&t="
 combined_content = ''
 
 for index in range(len(final_list)):
-    filename = f"{index}.txt"
+    filename = "{}.md".format(index)
     file_path = os.path.join(directory, filename)
 
     if os.path.exists(file_path):
